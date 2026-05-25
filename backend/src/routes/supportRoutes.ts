@@ -10,6 +10,7 @@ import { rewriteQueryForRetrieval } from "../services/support/queryRewriteServic
 import { checkInputGuardrails } from "../services/guardrails/inputGuardrailService";
 import { checkRetrievalGuardrails } from "../services/guardrails/retrievalGuardrailService";
 import { checkOutputGuardrails } from "../services/guardrails/outputGuardrailService";
+import { runSupportGraph } from "../agents/supportGraph";
 
 const router = express.Router();
 
@@ -357,6 +358,30 @@ router.delete("/:id", async (req, res) => {
         res.status(500).json({
             success: false,
             error: "Failed to delete document",
+        });
+    }
+});
+
+router.post("/graph/ask", async (req, res) => {
+    try {
+        const { question, documentId } = req.body;
+
+        if (!question) {
+            return res.status(400).json({
+                success: false,
+                error: "Question is required",
+            });
+        }
+
+        const result = await runSupportGraph(question, documentId);
+
+        res.json(result);
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            success: false,
+            error: "LangGraph support agent failed",
         });
     }
 });

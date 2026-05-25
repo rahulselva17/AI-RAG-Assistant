@@ -16,9 +16,17 @@ type Classification = {
   sentiment: string;
 };
 
-type RetrieveResponse = {
+type GraphResponse = {
   success: boolean;
+  blocked?: boolean;
+  blockReason?: string | null;
   classification?: Classification;
+  answer?: string;
+  healedQuery?: string | null;
+  selfHealingUsed?: boolean;
+  compressedContext?: string;
+  agentTrace?: string[];
+  selectedTool?: string;
   sources?: Source[];
   error?: string;
 };
@@ -41,10 +49,7 @@ function App() {
     null
   );
 
-  const [streamingAnswer, setStreamingAnswer] = useState("");
-  const [retrieveResult, setRetrieveResult] = useState<RetrieveResponse | null>(
-    null
-  );
+  const [graphResult, setGraphResult] = useState<GraphResponse | null>(null);
 
   useEffect(() => {
     fetchDocuments();
@@ -99,49 +104,25 @@ function App() {
     }
   };
 
-  const askQuestionStream = async () => {
+  const askAdvancedAgent = async () => {
     if (!question.trim()) return;
 
     setLoading(true);
-    setStreamingAnswer("");
-    setRetrieveResult(null);
+    setGraphResult(null);
 
     try {
-      const retrieveRes = await axios.post(`${API_BASE}/api/support/retrieve`, {
+      const res = await axios.post(`${API_BASE}/api/support/graph/ask`, {
         question,
         documentId: selectedDocumentId,
       });
 
-      setRetrieveResult(retrieveRes.data);
-
-      const response = await fetch(`${API_BASE}/api/support/stream`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question,
-          documentId: selectedDocumentId,
-        }),
-      });
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) {
-        throw new Error("No response stream");
-      }
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        setStreamingAnswer((prev) => prev + chunk);
-      }
+      setGraphResult(res.data);
     } catch (error) {
       console.error(error);
-      setStreamingAnswer("Streaming failed.");
+      setGraphResult({
+        success: false,
+        error: "Failed to get response from LangGraph agent.",
+      });
     } finally {
       setLoading(false);
     }
@@ -154,11 +135,13 @@ function App() {
   return (
     <div className="page">
       <header className="hero">
-        <div className="badge">RAG • Streaming • pgvector • OpenAI</div>
-        <h1>Agentic AI Customer Support Assistant</h1>
+        <div className="badge">
+          LangGraph • RAG • Guardrails • Agent Observability
+        </div>
+        <h1>Enterprise Agentic RAG AI Platform</h1>
         <p>
-          Upload support documents, ask questions, retrieve grounded sources, and
-          stream AI responses in real time.
+          Upload enterprise documents, ask questions, retrieve grounded sources,
+          and inspect the full AI agent execution workflow.
         </p>
       </header>
 
@@ -167,7 +150,7 @@ function App() {
           <section className="card">
             <h2>Upload Knowledge Base</h2>
             <p className="muted">
-              Upload policies, FAQs, manuals, or troubleshooting PDFs.
+              Upload policies, FAQs, manuals, research papers, or support PDFs.
             </p>
 
             <input
@@ -227,7 +210,7 @@ function App() {
         <section className="chat card">
           <div className="chat-header">
             <div>
-              <h2>Ask Support Agent</h2>
+              <h2>Ask LangGraph Agent</h2>
               <p className="muted">
                 Scope:{" "}
                 <strong>
@@ -243,36 +226,83 @@ function App() {
             onChange={(e) => setQuestion(e.target.value)}
           />
 
-          <button onClick={askQuestionStream} disabled={loading}>
-            {loading ? "Thinking..." : "Ask AI Agent"}
+          <button onClick={askAdvancedAgent} disabled={loading}>
+            {loading ? "Running Agent..." : "Ask Advanced Agent"}
           </button>
 
-          {retrieveResult?.classification && (
+          {graphResult?.classification && (
             <div className="chips">
-              <span>Category: {retrieveResult.classification.category}</span>
-              <span>Priority: {retrieveResult.classification.priority}</span>
-              <span>Sentiment: {retrieveResult.classification.sentiment}</span>
+              <span>Category: {graphResult.classification.category}</span>
+              <span>Priority: {graphResult.classification.priority}</span>
+              <span>Sentiment: {graphResult.classification.sentiment}</span>
+
+              {graphResult.selectedTool && (
+                <span>Tool: {graphResult.selectedTool}</span>
+              )}
             </div>
           )}
 
-          {streamingAnswer && (
+          {graphResult?.blocked && (
+            <div className="blocked-box">
+              <h3>Guardrail Blocked</h3>
+              <p>{graphResult.blockReason}</p>
+            </div>
+          )}
+
+          {graphResult?.answer && (
             <div className="response">
               <h3>AI Answer</h3>
-              <p className="answer">{streamingAnswer}</p>
+              <p className="answer">{graphResult.answer}</p>
             </div>
           )}
 
-          {retrieveResult?.sources && (
+          {graphResult?.selfHealingUsed !== undefined && (
+            <div className="trace-box">
+              <h3>Self-Healing Retrieval</h3>
+              <p>
+                {graphResult.selfHealingUsed
+                  ? "Self-healing query rewrite was used."
+                  : "Self-healing was not required."}
+              </p>
+
+              {graphResult.healedQuery && (
+                <p>
+                  <strong>Healed Query:</strong> {graphResult.healedQuery}
+                </p>
+              )}
+            </div>
+          )}
+
+          {graphResult?.agentTrace && (
+            <div className="trace-box">
+              <h3>Agent Trace</h3>
+
+              {graphResult.agentTrace.map((step, index) => (
+                <div key={index} className="trace-step">
+                  {index + 1}. {step}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {graphResult?.compressedContext && (
+            <div className="trace-box">
+              <h3>Compressed Context</h3>
+              <pre>{graphResult.compressedContext}</pre>
+            </div>
+          )}
+
+          {graphResult?.sources && (
             <div className="response">
               <h3>Retrieved Sources</h3>
 
-              {retrieveResult.sources.length === 0 ? (
+              {graphResult.sources.length === 0 ? (
                 <p className="empty">
                   No relevant sources found. Try selecting the correct document
                   or uploading a more relevant PDF.
                 </p>
               ) : (
-                retrieveResult.sources.map((source, index) => (
+                graphResult.sources.map((source, index) => (
                   <div className="source" key={index}>
                     <div className="source-header">
                       <strong>{source.document}</strong>
@@ -285,7 +315,7 @@ function App() {
             </div>
           )}
 
-          {retrieveResult?.error && <p className="error">{retrieveResult.error}</p>}
+          {graphResult?.error && <p className="error">{graphResult.error}</p>}
         </section>
       </main>
     </div>

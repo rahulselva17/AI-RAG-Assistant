@@ -281,6 +281,52 @@ button:disabled {
   border-radius: 12px;
 }
 
+.trace-box {
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #f8fafc;
+}
+
+.trace-box h3 {
+  margin-top: 0;
+  color: #ffffff;
+}
+
+.trace-box p {
+  color: #e2e8f0;
+}
+
+.trace-step {
+  padding: 10px 0;
+  border-bottom: 1px solid #334155;
+  color: #f1f5f9;
+  font-weight: 500;
+}
+
+.trace-step:last-child {
+  border-bottom: none;
+}
+
+.blocked-box {
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #7f1d1d;
+  color: #fee2e2;
+  border: 1px solid #ef4444;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
 @media (max-width: 950px) {
   .layout {
     grid-template-columns: 1fr;

@@ -10,10 +10,10 @@ const pool = new Pool({
 export const connectDB = async () => {
   try {
     const client = await pool.connect();
-    console.log("✅ Connected to PostgreSQL");
+    console.log("Connected to PostgreSQL");
     client.release();
   } catch (error) {
-    console.error("❌ DB connection failed:", error);
+    console.error("DB connection failed:", error);
   }
 };
 
