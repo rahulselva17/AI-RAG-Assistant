@@ -27,6 +27,7 @@ type GraphResponse = {
   compressedContext?: string;
   agentTrace?: string[];
   selectedTool?: string;
+  cacheHit?: boolean;
   sources?: Source[];
   error?: string;
 };
@@ -238,6 +239,9 @@ function App() {
 
               {graphResult.selectedTool && (
                 <span>Tool: {graphResult.selectedTool}</span>
+              )}
+              {graphResult.cacheHit !== undefined && (
+                <span>Cache: {graphResult.cacheHit ? "HIT" : "MISS"}</span>
               )}
             </div>
           )}

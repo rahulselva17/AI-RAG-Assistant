@@ -10,6 +10,7 @@ import pool from "../db";
 import { getEmbedding } from "../services/embeddingService";
 import { routeToTool, ToolName } from "../services/support/toolRouterService";
 import { runSqlTool } from "../services/support/sqlToolService";
+import { redisClient } from "../services/cache/redisService";
 
 type Chunk = {
     id: number;
@@ -424,27 +425,52 @@ const graph = new StateGraph(SupportGraphState)
     .addEdge("outputGuardrail", END)
     .compile();
 
-export const runSupportGraph = async (question: string, documentId?: number) => {
-    const result = await graph.invoke({
-        question,
-        documentId,
-    });
-
-    return {
-        success: true,
-        blocked: result.blocked,
-        blockReason: result.blockReason,
-        classification: result.classification,
-        answer: result.answer,
-        healedQuery: result.healedQuery,
-        selfHealingUsed: result.selfHealingUsed,
-        compressedContext: result.compressedContext,
-        selectedTool: result.selectedTool,
-        agentTrace: result.agentTrace,
-        sources: result.chunks.map((chunk) => ({
+    export const runSupportGraph = async (question: string, documentId?: number) => {
+        const normalizedQuestion = question.trim().toLowerCase();
+        const cacheKey = `graph:${normalizedQuestion}:${documentId || "all"}`;
+      
+        const cachedResponse = await redisClient.get(cacheKey);
+      
+        if (cachedResponse) {
+          console.log("CACHE HIT:", cacheKey);
+      
+          return {
+            ...JSON.parse(cachedResponse),
+            cacheHit: true,
+          };
+        }
+      
+        console.log("CACHE MISS:", cacheKey);
+      
+        const result = await graph.invoke({
+          question,
+          documentId,
+        });
+      
+        const finalResponse = {
+          success: true,
+          blocked: result.blocked,
+          blockReason: result.blockReason,
+          classification: result.classification,
+          answer: result.answer,
+          healedQuery: result.healedQuery,
+          selfHealingUsed: result.selfHealingUsed,
+          compressedContext: result.compressedContext,
+          agentTrace: result.agentTrace,
+          selectedTool: result.selectedTool,
+          sources: result.chunks.map((chunk) => ({
             document: chunk.document_name,
             content: chunk.content,
             distance: chunk.distance,
-        })),
-    };
-};
+          })),
+        };
+      
+        await redisClient.set(cacheKey, JSON.stringify(finalResponse), {
+          EX: 3600,
+        });
+      
+        return {
+          ...finalResponse,
+          cacheHit: false,
+        };
+      };
