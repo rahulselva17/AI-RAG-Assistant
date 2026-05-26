@@ -1,192 +1,208 @@
 import express from "express";
-import pool from "../db";
-import { chunkText } from "../utils/chunkText";
-import { getEmbedding } from "../services/embeddingService";
-import { generateAnswer } from "../services/answerService";
 import multer from "multer";
 import fs from "fs";
 import pdfParse from "pdf-parse";
+import pool from "../db";
+import { getEmbedding } from "../services/embeddingService";
+import { upsertChunkToQdrant } from "../services/vector/qdrantService";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/" });
 
-router.get("/", async (_req, res) => {
-    try {
-        const result = await pool.query(`
-        SELECT 
-          d.id,
-          d.name,
-          d.created_at,
-          COUNT(dc.id) AS chunk_count
-        FROM documents d
-        LEFT JOIN document_chunks dc
-          ON d.id = dc.document_id
-        GROUP BY d.id
-        ORDER BY d.created_at DESC
-      `);
-
-        res.json({
-            success: true,
-            documents: result.rows,
-        });
-    } catch (error) {
-        console.error(error);
-
-        res.status(500).json({
-            success: false,
-            error: "Failed to fetch documents",
-        });
-    }
+const upload = multer({
+  dest: "uploads/",
 });
+
+const chunkText = (text: string, chunkSize = 800, overlap = 100) => {
+  const chunks: string[] = [];
+
+  let start = 0;
+
+  while (start < text.length) {
+    const end = start + chunkSize;
+    const chunk = text.slice(start, end).trim();
+
+    if (chunk.length > 0) {
+      chunks.push(chunk);
+    }
+
+    start += chunkSize - overlap;
+  }
+
+  return chunks;
+};
 
 router.post("/upload-pdf", upload.single("file"), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                error: "PDF file is required",
-            });
-        }
+  let uploadedFilePath: string | null = null;
 
-        const fileBuffer = fs.readFileSync(req.file.path);
-        const pdfData = await pdfParse(fileBuffer);
-        const text = pdfData.text;
-
-        if (!text || text.trim().length === 0) {
-            return res.status(400).json({
-                success: false,
-                error: "No text found in PDF",
-            });
-        }
-
-        const docResult = await pool.query(
-            "INSERT INTO documents (name) VALUES ($1) RETURNING id",
-            [req.file.originalname]
-        );
-
-        const documentId = docResult.rows[0].id;
-        const chunks = chunkText(text);
-
-        for (const chunk of chunks) {
-            const embedding = await getEmbedding(chunk);
-
-            await pool.query(
-                `INSERT INTO document_chunks (document_id, content, embedding)
-           VALUES ($1, $2, $3::vector)`,
-                [documentId, chunk, `[${embedding.join(",")}]`]
-            );
-        }
-
-        fs.unlinkSync(req.file.path);
-
-        res.json({
-            success: true,
-            message: "PDF uploaded and stored with embeddings",
-            documentId,
-            chunksStored: chunks.length,
-        });
-    } catch (error) {
-        console.error(error);
-
-        if (req.file?.path && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
-        }
-
-        res.status(500).json({
-            success: false,
-            error: "PDF upload failed",
-        });
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "PDF file is required",
+      });
     }
-});
-router.post("/upload-text", async (req, res) => {
-    try {
-        const { text, name } = req.body;
 
-        // Insert document
-        const docResult = await pool.query(
-            "INSERT INTO documents (name) VALUES ($1) RETURNING id",
-            [name]
-        );
+    uploadedFilePath = req.file.path;
 
-        const documentId = docResult.rows[0].id;
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const parsedPdf = await pdfParse(fileBuffer);
 
-        // Chunk text
-        const chunks = chunkText(text);
+    const fullText = parsedPdf.text;
 
-        for (const chunk of chunks) {
-            const embedding = await getEmbedding(chunk);
-
-            await pool.query(
-                `INSERT INTO document_chunks (document_id, content, embedding)
-         VALUES ($1, $2, $3::vector)`,
-                [
-                    documentId,
-                    chunk,
-                    `[${embedding.join(",")}]`
-                ]
-            );
-        }
-
-        res.json({ success: true, message: "Document stored with embeddings" });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Upload failed" });
+    if (!fullText || !fullText.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Could not extract text from PDF",
+      });
     }
-});
 
-router.post("/ask", async (req, res) => {
-    try {
-        const { question } = req.body;
+    const documentResult = await pool.query(
+      "INSERT INTO documents (name) VALUES ($1) RETURNING id, name",
+      [req.file.originalname]
+    );
 
-        if (!question) {
-            return res.status(400).json({
-                success: false,
-                error: "Question is required",
-            });
-        }
+    const documentId = documentResult.rows[0].id;
+    const documentName = documentResult.rows[0].name;
 
-        const questionEmbedding = await getEmbedding(question);
-        const vectorString = `[${questionEmbedding.join(",")}]`;
+    const chunks = chunkText(fullText);
 
-        const result = await pool.query(
-            `
-        SELECT 
-          dc.id,
-          dc.content,
-          d.name AS document_name,
-          dc.embedding <-> $1::vector AS distance
-        FROM document_chunks dc
-        JOIN documents d ON dc.document_id = d.id
-        ORDER BY dc.embedding <-> $1::vector
-        LIMIT 5;
+    let chunksStored = 0;
+
+    for (const chunk of chunks) {
+      const embedding = await getEmbedding(chunk);
+      const vectorString = `[${embedding.join(",")}]`;
+
+      const chunkResult = await pool.query(
+        `
+        INSERT INTO document_chunks (document_id, content, embedding)
+        VALUES ($1, $2, $3::vector)
+        RETURNING id
         `,
-            [vectorString]
-        );
+        [documentId, chunk, vectorString]
+      );
 
-        const chunks = result.rows;
+      const chunkId = chunkResult.rows[0].id;
 
-        const context = chunks
-            .map((chunk, index) => `Source ${index + 1}: ${chunk.content}`)
-            .join("\n\n");
+      await upsertChunkToQdrant({
+        chunkId,
+        documentId,
+        documentName,
+        content: chunk,
+        embedding,
+      });
 
-        const answer = await generateAnswer(question, context);
-
-        res.json({
-            success: true,
-            answer,
-            sources: chunks.map((chunk) => ({
-                document: chunk.document_name,
-                content: chunk.content,
-                distance: chunk.distance,
-            })),
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            error: "Question answering failed",
-        });
+      chunksStored++;
     }
+
+    res.json({
+      success: true,
+      message: "PDF uploaded and stored with embeddings",
+      documentId,
+      chunksStored,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: "Upload failed",
+    });
+  } finally {
+    if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+      fs.unlinkSync(uploadedFilePath);
+    }
+  }
+});
+
+router.get("/", async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        d.id,
+        d.name,
+        d.created_at,
+        COUNT(dc.id) AS chunk_count
+      FROM documents d
+      LEFT JOIN document_chunks dc
+        ON d.id = dc.document_id
+      GROUP BY d.id
+      ORDER BY d.created_at DESC
+    `);
+
+    res.json({
+      success: true,
+      documents: result.rows,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch documents",
+    });
+  }
+});
+
+router.get("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const documentResult = await pool.query(
+      "SELECT * FROM documents WHERE id = $1",
+      [id]
+    );
+
+    if (documentResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Document not found",
+      });
+    }
+
+    const chunksResult = await pool.query(
+      `
+      SELECT id, content, created_at
+      FROM document_chunks
+      WHERE document_id = $1
+      ORDER BY id ASC
+      `,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      document: documentResult.rows[0],
+      chunks: chunksResult.rows,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch document",
+    });
+  }
+});
+
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await pool.query("DELETE FROM document_chunks WHERE document_id = $1", [id]);
+    await pool.query("DELETE FROM documents WHERE id = $1", [id]);
+
+    res.json({
+      success: true,
+      message: "Document deleted successfully",
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to delete document",
+    });
+  }
 });
 
 export default router;
