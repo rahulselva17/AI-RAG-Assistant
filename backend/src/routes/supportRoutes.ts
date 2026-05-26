@@ -11,6 +11,7 @@ import { checkInputGuardrails } from "../services/guardrails/inputGuardrailServi
 import { checkRetrievalGuardrails } from "../services/guardrails/retrievalGuardrailService";
 import { checkOutputGuardrails } from "../services/guardrails/outputGuardrailService";
 import { runSupportGraph } from "../agents/supportGraph";
+import { runOpenAIFunctionToolAgent } from "../services/support/openaiFunctionToolService";
 
 const router = express.Router();
 
@@ -385,5 +386,32 @@ router.post("/graph/ask", async (req, res) => {
         });
     }
 });
+
+router.post("/function-agent", async (req, res) => {
+    try {
+      const { question } = req.body;
+  
+      if (!question) {
+        return res.status(400).json({
+          success: false,
+          error: "Question is required",
+        });
+      }
+  
+      const result = await runOpenAIFunctionToolAgent(question);
+  
+      res.json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      console.error(error);
+  
+      res.status(500).json({
+        success: false,
+        error: "OpenAI function tool agent failed",
+      });
+    }
+  });
 
 export default router;

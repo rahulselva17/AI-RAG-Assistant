@@ -51,6 +51,7 @@ function App() {
   );
 
   const [graphResult, setGraphResult] = useState<GraphResponse | null>(null);
+  const [functionResult, setFunctionResult] = useState<any>(null);
 
   useEffect(() => {
     fetchDocuments();
@@ -110,7 +111,7 @@ function App() {
 
     setLoading(true);
     setGraphResult(null);
-
+    setFunctionResult(null);
     try {
       const res = await axios.post(`${API_BASE}/api/support/graph/ask`, {
         question,
@@ -132,6 +133,30 @@ function App() {
   const selectedDocument = documents.find(
     (doc) => doc.id === selectedDocumentId
   );
+
+  const askFunctionAgent = async () => {
+    if (!question.trim()) return;
+
+    setLoading(true);
+    setFunctionResult(null);
+    setGraphResult(null);
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/support/function-agent`, {
+        question,
+      });
+
+      setFunctionResult(res.data);
+    } catch (error) {
+      console.error(error);
+      setFunctionResult({
+        success: false,
+        error: "Function agent failed.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="page">
@@ -228,8 +253,34 @@ function App() {
           />
 
           <button onClick={askAdvancedAgent} disabled={loading}>
-            {loading ? "Running Agent..." : "Ask Advanced Agent"}
+            {loading ? "Running Agent..." : "Ask RAG Agent"}
           </button>
+
+          <button onClick={askFunctionAgent} disabled={loading}>
+            {loading ? "Running Agent..." : "Ask OPEN AI Function Calling Agent "}
+          </button>
+
+          {functionResult && (
+            <div className="response">
+              <h3>Function Calling Result</h3>
+
+              {functionResult.success ? (
+                <>
+                  <p className="answer">{functionResult.answer}</p>
+
+                  {functionResult.selectedFunctions && (
+                    <div className="chips">
+                      {functionResult.selectedFunctions.map((fn: string) => (
+                        <span key={fn}>Function: {fn}</span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="error">{functionResult.error}</p>
+              )}
+            </div>
+          )}
 
           {graphResult?.classification && (
             <div className="chips">
