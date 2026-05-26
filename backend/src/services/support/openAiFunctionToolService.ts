@@ -5,7 +5,7 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+const tools: any[] = [
   {
     type: "function",
     function: {
@@ -14,7 +14,6 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {},
-        additionalProperties: false,
       },
     },
   },
@@ -26,7 +25,6 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {},
-        additionalProperties: false,
       },
     },
   },
@@ -38,7 +36,6 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {},
-        additionalProperties: false,
       },
     },
   },
@@ -50,7 +47,6 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {},
-        additionalProperties: false,
       },
     },
   },
@@ -126,8 +122,8 @@ export const runOpenAIFunctionToolAgent = async (question: string) => {
     tool_choice: "auto",
   });
 
-  const message = firstResponse.choices[0].message;
-  const toolCalls = message.tool_calls || [];
+  const message: any = firstResponse.choices[0].message;
+  const toolCalls: any[] = message.tool_calls || [];
 
   if (toolCalls.length === 0) {
     return {
@@ -138,7 +134,7 @@ export const runOpenAIFunctionToolAgent = async (question: string) => {
     };
   }
 
-  const toolMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+  const toolMessages: any[] = [];
 
   for (const toolCall of toolCalls) {
     const toolName = toolCall.function.name;

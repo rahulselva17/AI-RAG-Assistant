@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-postgres
+  template:
+    metadata:
+      labels:
+        app: rag-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: rag_user
+            - name: POSTGRES_PASSWORD
+              value: rag_password
+            - name: POSTGRES_DB
+              value: rag_db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-postgres
+spec:
+  selector:
+    app: rag-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

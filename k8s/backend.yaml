@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-backend
+  template:
+    metadata:
+      labels:
+        app: rag-backend
+    spec:
+      containers:
+        - name: backend
+          image: rag-backend:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5050
+          env:
+            - name: PORT
+              value: "5050"
+            - name: DB_HOST
+              value: rag-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: rag_user
+            - name: DB_PASSWORD
+              value: rag_password
+            - name: DB_NAME
+              value: rag_db
+            - name: REDIS_URL
+              value: redis://rag-redis:6379
+            - name: OPENAI_API_KEY
+              value: "PASTE_YOUR_KEY_TEMPORARILY"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-backend
+spec:
+  selector:
+    app: rag-backend
+  ports:
+    - port: 5050
+      targetPort: 5050
+      nodePort: 30050
+  type: NodePort
